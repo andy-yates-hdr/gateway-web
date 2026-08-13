@@ -3,7 +3,7 @@ import { createAPIFlagAdapter } from "./gatewayFlagAdapter";
 jest.mock("@/config/apis", () => ({
     __esModule: true,
     default: {
-        enabledFeatures: "http://localhost/mock-api",
+        features: "http://localhost/mock-api",
     },
 }));
 
@@ -73,4 +73,37 @@ describe("createGatewayFlagAdapter", () => {
         const result = await adapter.decide({ key: "NonExistent" });
         expect(result).toBe(false);
     });
+});
+
+describe("createGatewayFlagAdapter — invalid apis.features shapes", () => {
+    afterEach(() => {
+        jest.dontMock("@/config/apis");
+        jest.resetModules();
+    });
+
+    it.each([
+        ["unset, stringified", "undefined/features"],
+        ["set but blank", "/features"],
+        ["empty string", ""],
+    ])(
+        "skips the fetch entirely when apis.features is %s (%s)",
+        async (_label, featuresValue) => {
+            jest.resetModules();
+            jest.doMock("@/config/apis", () => ({
+                __esModule: true,
+                default: { features: featuresValue },
+            }));
+
+            const { createAPIFlagAdapter: freshCreateAPIFlagAdapter } =
+                await import("./gatewayFlagAdapter");
+            const fetchMock = jest.fn();
+            global.fetch = fetchMock as unknown as typeof fetch;
+
+            const freshAdapter = freshCreateAPIFlagAdapter()();
+            const result = await freshAdapter.decide({ key: "AnyFlag" });
+
+            expect(result).toBe(false);
+            expect(fetchMock).not.toHaveBeenCalled();
+        }
+    );
 });

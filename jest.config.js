@@ -22,6 +22,7 @@ const customJestConfig = {
     "^@/components/(.*)$": "<rootDir>/src/components/$1",
     "^@/providers/(.*)$": "<rootDir>/src/providers/$1",
     "^@/utils/(.*)$": "<rootDir>/src/utils/$1",
+    "^@/flags$": "<rootDir>/src/flags",
     "^next-intl$": "<rootDir>/mocks/next-intl.ts",
   },
 

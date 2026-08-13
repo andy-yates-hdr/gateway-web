@@ -3,6 +3,10 @@ import { act, render, screen, waitFor } from "@/utils/testUtils";
 import { eventsV1, newsV1 } from "@/mocks/data/cms";
 import NewsEventsPage from "./page";
 
+jest.mock("@/flags", () => ({
+    isMarkdownContentEnabled: jest.fn().mockResolvedValue(false),
+}));
+
 jest.mock("@/utils/cms", () => ({
     ...jest.requireActual("@/utils/cms"),
     getEvents: async () => eventsV1.posts.edges,

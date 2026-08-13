@@ -47,3 +47,8 @@ export const isCustodianDashboardEnabled = flag({
     key: "V3_CustodianDashboard",
     adapter,
 });
+
+export const isMarkdownContentEnabled = flag({
+    key: "MarkdownContentSource",
+    adapter,
+});

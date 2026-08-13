@@ -16,6 +16,9 @@ jest.mock("next/headers", () => ({
         get: jest.fn().mockReturnValue({ value: sessionId }),
     })),
 }));
+jest.mock("@/flags", () => ({
+    isMarkdownContentEnabled: jest.fn().mockResolvedValue(false),
+}));
 describe("CMS utils", () => {
     beforeAll(() => {
         jest.spyOn(window, "fetch");

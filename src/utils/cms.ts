@@ -42,8 +42,11 @@ import { GetNewsQuery } from "@/config/queries/news";
 import { GetReleaseNotesQuery } from "@/config/queries/releaseNotes";
 import { GetTermsAndConditionsQuery } from "@/config/queries/termsAndConditions";
 import { sessionHeader, sessionPrefix } from "@/config/session";
+import { isMarkdownContentEnabled } from "@/flags";
 import { getSessionCookie } from "./getSessionCookie";
 import { logger } from "./logger";
+import { loadCollection, loadPage, toPageTemplateDefault } from "./markdownContent";
+import { toPublicAssetUrl } from "./markdownAssetUrl";
 
 const DEFAULT_OPTIONS = {
     next: { revalidate: 10 },
@@ -145,6 +148,20 @@ async function fetchCMS(
 }
 
 const getReleaseNotes = async () => {
+    if (await isMarkdownContentEnabled()) {
+        const releases = await loadCollection("releases");
+
+        return releases.map(({ slug, data, body }) => ({
+            node: {
+                id: slug,
+                title: String(data.title ?? ""),
+                date: String(data.date ?? ""),
+                content: body,
+                release: { releaseDate: String(data.date ?? "") },
+            },
+        })) as ReleaseNode[];
+    }
+
     const data: CMSPostsResponse<ReleaseNode> = await fetchCMS(
         GetReleaseNotesQuery,
         DEFAULT_OPTIONS
@@ -153,6 +170,23 @@ const getReleaseNotes = async () => {
 };
 
 const getMissionAndPurposes = async () => {
+    if (await isMarkdownContentEnabled()) {
+        const parsed = await loadPage("about/our-mission-and-purpose");
+
+        if (!parsed) return [];
+
+        return [
+            {
+                node: {
+                    id: "our-mission-and-purpose",
+                    title: String(parsed.data.title ?? ""),
+                    date: String(parsed.data.crawled ?? ""),
+                    content: parsed.body,
+                },
+            },
+        ] as MissionAndPurposesNode[];
+    }
+
     const data: CMSPostsResponse<MissionAndPurposesNode> = await fetchCMS(
         GetMissionAndPurposesQuery,
         DEFAULT_OPTIONS
@@ -191,7 +225,41 @@ const getHomePageBanner = async () => {
     return substituteEnvLinks(data?.posts?.edges);
 };
 
+const linkedItemsFromMarkdown = async (
+    collection: "news" | "events",
+    categoryName: "News" | "Events"
+) => {
+    const items = await loadCollection(collection);
+
+    return items.map(({ slug, data, body }) => ({
+        node: {
+            slug,
+            newsFields: {
+                id: slug,
+                headline: String(data.title ?? ""),
+                date: String(data.date ?? ""),
+                text: String(data.excerpt ?? body),
+                link: {
+                    url: String(data.external_url ?? ""),
+                    title: String(data.source ?? data.title ?? ""),
+                },
+                image: {
+                    node: {
+                        mediaItemUrl: toPublicAssetUrl(String(data.image ?? "")),
+                        altText: String(data.title ?? ""),
+                    },
+                },
+            },
+            categories: { nodes: [{ name: categoryName }] },
+        },
+    }));
+};
+
 const getNews = async () => {
+    if (await isMarkdownContentEnabled()) {
+        return (await linkedItemsFromMarkdown("news", "News")) as NewsNode[];
+    }
+
     const data: CMSPostsResponse<NewsNode> = await fetchCMS(
         GetNewsQuery,
         DEFAULT_OPTIONS,
@@ -202,6 +270,13 @@ const getNews = async () => {
 };
 
 const getEvents = async () => {
+    if (await isMarkdownContentEnabled()) {
+        return (await linkedItemsFromMarkdown(
+            "events",
+            "Events"
+        )) as EventNode[];
+    }
+
     const data: CMSPostsResponse<EventNode> = await fetchCMS(
         GetEventsQuery,
         DEFAULT_OPTIONS,
@@ -211,10 +286,32 @@ const getEvents = async () => {
     return substituteEnvLinks(data?.posts?.edges);
 };
 
+/** content/news/ tagged "News", content/events/ tagged "Events" — matches how
+ * article pages check `hasCategoryName(cmsPost.categories, "News"/"Events")`. */
+const findPostBySlug = async (slug: string) => {
+    const collections: ["news" | "events", "News" | "Events"][] = [
+        ["news", "News"],
+        ["events", "Events"],
+    ];
+
+    for (const [collection, categoryName] of collections) {
+        const items = await loadCollection(collection);
+        const entry = items.find(item => item.slug === slug);
+
+        if (entry) return toPageTemplateDefault(slug, entry, categoryName);
+    }
+
+    return null;
+};
+
 const getContentPostQuery = async (
     queryName: string,
     queryOptions: ContentPageQueryOptions
 ) => {
+    if (await isMarkdownContentEnabled()) {
+        return findPostBySlug(queryOptions.id ?? queryOptions.name ?? "");
+    }
+
     const data: CMSPostResponse<PageTemplateDefault> = await fetchCMS(
         GetContentPostQuery(queryName, queryOptions),
         DEFAULT_OPTIONS
@@ -227,6 +324,13 @@ const getContentPageQuery = async (
     queryName: string,
     queryOptions: ContentPageQueryOptions
 ) => {
+    if (await isMarkdownContentEnabled()) {
+        const slug = queryOptions.id ?? queryOptions.name ?? "";
+        const parsed = await loadPage(slug);
+
+        return parsed ? toPageTemplateDefault(slug, parsed) : null;
+    }
+
     const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
         GetContentPageQuery(queryName, queryOptions),
         DEFAULT_OPTIONS
@@ -235,10 +339,22 @@ const getContentPageQuery = async (
     return substituteEnvLinks(data?.page);
 };
 
+/** WordPress resolved `id` against a flat page namespace, so `parentId` is
+ * not needed to disambiguate here — the Markdown fallback used by loadPage
+ * (recursive basename search) mirrors that flat lookup. See
+ * CONVERSION_PLAN.md for why parentId isn't used to locate the file. */
 const getContentPageByParentQuery = async (
     queryName: string,
     queryOptions: ContentPageByParentQueryOptions
 ) => {
+    if (await isMarkdownContentEnabled()) {
+        const parsed = await loadPage(queryOptions.id ?? "");
+
+        return parsed
+            ? toPageTemplateDefault(queryOptions.id ?? "", parsed)
+            : null;
+    }
+
     const parentData: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
         GetContentPageQuery(
             queryName,
@@ -303,7 +419,63 @@ const getNewCohortDiscovery = async () => {
     return substituteEnvLinks(data?.page);
 };
 
+/**
+ * A partial, best-effort stand-in — not a real conversion. The homepage's
+ * ACF fields (`homeFields`: hero video, affiliate link, funder logos,
+ * newsletter copy; `meetTheTeam`: the team callout) have no equivalent
+ * anywhere in the crawled Markdown, so they're left blank/empty rather than
+ * invented. `HTMLVideoEmbed` and `LogoSlider` already handle an empty
+ * `gatewayVideo`/`logos` gracefully (see their own components), so this
+ * renders a real page rather than a placeholder error — just missing the
+ * ACF-only sections. `posts.edges` is real: the latest news/events from
+ * Markdown, same source `getNews`/`getEvents` use.
+ */
+const getHomePageFromMarkdown = async (): Promise<PageTemplateHome> => {
+    const [news, events] = await Promise.all([
+        linkedItemsFromMarkdown("news", "News"),
+        linkedItemsFromMarkdown("events", "Events"),
+    ]);
+
+    const posts = [...news, ...events]
+        .sort((a, b) =>
+            dayjs(b.node.newsFields.date).isBefore(a.node.newsFields.date)
+                ? -1
+                : 1
+        )
+        .slice(0, 4) as (NewsNode | EventNode)[];
+
+    return {
+        page: {
+            id: "home",
+            title: "Health Data Research Gateway",
+            content: "",
+            template: {
+                homeFields: {
+                    newsHeader: "Latest news and events",
+                    gatewayVideo: "",
+                    gatewayVideoHeader: "",
+                    affiliateLink: { url: "", title: "" },
+                    logos: [],
+                    newsletterSignupHeader: "",
+                    newsletterSignupDescription: "",
+                },
+                meetTheTeam: {
+                    sectionName: "Meet the team",
+                    title: "",
+                    intro: "",
+                    image: { node: { altText: "", sourceUrl: "" } },
+                },
+            },
+        },
+        posts: { edges: posts },
+    };
+};
+
 const getHomePage = async () => {
+    if (await isMarkdownContentEnabled()) {
+        return getHomePageFromMarkdown();
+    }
+
     const data: PageTemplateHome = await fetchCMS(
         GetHomePageQuery,
         DEFAULT_OPTIONS
@@ -313,6 +485,13 @@ const getHomePage = async () => {
 };
 
 const getTermsAndConditions = async () => {
+    if (await isMarkdownContentEnabled()) {
+        return getContentPageQuery("getTermsAndConditions", {
+            id: "terms-and-conditions",
+            idType: "URI",
+        });
+    }
+
     const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
         GetTermsAndConditionsQuery,
         DEFAULT_OPTIONS
@@ -331,6 +510,13 @@ const getCohortTermsAndConditions = async () => {
 };
 
 const getHowToSearchPage = async () => {
+    if (await isMarkdownContentEnabled()) {
+        return getContentPageQuery("getHowToSearchPage", {
+            id: "how-to-search",
+            idType: "URI",
+        });
+    }
+
     const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
         GetHowToSearchQuery,
         DEFAULT_OPTIONS
@@ -339,113 +525,63 @@ const getHowToSearchPage = async () => {
     return substituteEnvLinks(data?.page);
 };
 
-const getWorkWithUs = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getWorkWithUs", {
-            id: "work-with-us",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
+// These previously called `fetchCMS(GetContentPageQuery(...))` directly
+// rather than the local `getContentPageQuery` wrapper above, which would have
+// bypassed its Markdown branch. Routed through it now — identical behaviour
+// on the WordPress path, and picks up the flag for free.
+const getWorkWithUs = async () =>
+    getContentPageQuery("getWorkWithUs", {
+        id: "work-with-us",
+        idType: "URI",
+    });
 
-    return substituteEnvLinks(data?.page);
-};
+const getTechnologyEcosystem = async () =>
+    getContentPageQuery("getTechnologyEcosystem", {
+        id: "technology-ecosystem",
+        idType: "URI",
+    });
 
-const getTechnologyEcosystem = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getTechnologyEcosystem", {
-            id: "technology-ecosystem",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
+const getResearchersInnovators = async () =>
+    getContentPageQuery("getResearchersInnovatorsQuery", {
+        id: "researchers-innovators",
+        idType: "URI",
+    });
 
-    return substituteEnvLinks(data?.page);
-};
+const getDataCustodians = async () =>
+    getContentPageQuery("getDataCustodiansQuery", {
+        id: "data-custodians",
+        idType: "URI",
+    });
 
-const getResearchersInnovators = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getResearchersInnovatorsQuery", {
-            id: "researchers-innovators",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
+const getPatientsAndPublic = async () =>
+    getContentPageQuery("getPatientsAndPublicQuery", {
+        id: "patients-and-public",
+        idType: "URI",
+    });
 
-    return substituteEnvLinks(data?.page);
-};
+const getGlossary = async () =>
+    getContentPageQuery("getGlossaryQuery", {
+        id: "glossary",
+        idType: "URI",
+    });
 
-const getDataCustodians = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getDataCustodiansQuery", {
-            id: "data-custodians",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
+const getGettingStarted = async () =>
+    getContentPageQuery("getGettingStartedQuery", {
+        id: "data-custodian-getting-started",
+        idType: "URI",
+    });
 
-    return substituteEnvLinks(data?.page);
-};
+const getMetadataOnboarding = async () =>
+    getContentPageQuery("getMetadataOnboardingQuery", {
+        id: "data-custodian-metadata-onboarding",
+        idType: "URI",
+    });
 
-const getPatientsAndPublic = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getPatientsAndPublicQuery", {
-            id: "patients-and-public",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
-
-const getGlossary = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getGlossaryQuery", {
-            id: "glossary",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
-
-const getGettingStarted = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getGettingStartedQuery", {
-            id: "data-custodian-getting-started",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
-
-const getMetadataOnboarding = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getMetadataOnboardingQuery", {
-            id: "data-custodian-metadata-onboarding",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
-
-const getOpenSourceDevelopment = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getOpenSourceDevelopmentQuery", {
-            id: "open-source-development",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
+const getOpenSourceDevelopment = async () =>
+    getContentPageQuery("getOpenSourceDevelopmentQuery", {
+        id: "open-source-development",
+        idType: "URI",
+    });
 
 const getSortedNewsEventsByDate = async (data: (NewsNode | EventNode)[]) =>
     [...data].sort((a, b) => {
@@ -463,29 +599,17 @@ const hasCategoryName = async (
     return !!categories?.nodes?.find(item => item.name === categoryName);
 };
 
-const getPrivacyPolicy = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getPrivacyPolicyQuery", {
-            id: "privacy-policy",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
+const getPrivacyPolicy = async () =>
+    getContentPageQuery("getPrivacyPolicyQuery", {
+        id: "privacy-policy",
+        idType: "URI",
+    });
 
-    return substituteEnvLinks(data?.page);
-};
-
-const getCookieNotice = async () => {
-    const data: CMSPageResponse<PageTemplateDefault> = await fetchCMS(
-        GetContentPageQuery("getCookieNoticeQuery", {
-            id: "cookie-notice",
-            idType: "URI",
-        }),
-        DEFAULT_OPTIONS
-    );
-
-    return substituteEnvLinks(data?.page);
-};
+const getCookieNotice = async () =>
+    getContentPageQuery("getCookieNoticeQuery", {
+        id: "cookie-notice",
+        idType: "URI",
+    });
 
 export {
     getCohortDiscovery,

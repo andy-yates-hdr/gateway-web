@@ -25,6 +25,7 @@ import {
     isExternalSourcesEnabled,
     isTypesenseSearchEnabled,
     isCustodianDashboardEnabled,
+    isMarkdownContentEnabled,
 } from "@/flags";
 import ActionBarProvider from "@/providers/ActionBarProvider";
 import CohortRedirectProvider from "@/providers/CohortRedirectProvider";
@@ -79,6 +80,7 @@ export default async function RootLayout(props: {
             (await isTypesenseSearchEnabled()) as boolean,
         isCustodianDashboardEnabled:
             (await isCustodianDashboardEnabled()) as boolean,
+        isMarkdownContentEnabled: (await isMarkdownContentEnabled()) as boolean,
     };
 
     if (includeBanners) {

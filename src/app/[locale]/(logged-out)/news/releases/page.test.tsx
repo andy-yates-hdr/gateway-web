@@ -8,6 +8,9 @@ jest.mock("next/headers", () => ({
         get: jest.fn().mockReturnValue({ value: 123421 }),
     })),
 }));
+jest.mock("@/flags", () => ({
+    isMarkdownContentEnabled: jest.fn().mockResolvedValue(false),
+}));
 describe("Releases", () => {
     it("should render contents", async () => {
         const Result = await ReleasePage();

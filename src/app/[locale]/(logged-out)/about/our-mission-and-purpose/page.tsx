@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import Banner from "@/components/Banner";
 import Container from "@/components/Container";
+import HTMLContent from "@/components/HTMLContent";
 import { ABOUT, OUR_MISSION_AND_PURPOSE, PAGES } from "@/consts/translation";
 import { getMissionAndPurposes } from "@/utils/cms";
 import metaData from "@/utils/metadata";
@@ -40,11 +41,7 @@ export default async function MissionsPage() {
                                     __html: mission.node.title,
                                 }}
                             />
-                            <div
-                                dangerouslySetInnerHTML={{
-                                    __html: mission.node.content,
-                                }}
-                            />
+                            <HTMLContent content={mission.node.content} />
                         </div>
                     ))}
                 </div>
