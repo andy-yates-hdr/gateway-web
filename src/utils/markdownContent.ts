@@ -52,6 +52,19 @@ const getContentRoot = (): string => {
 
 const isRemoteRoot = (): boolean => /^https?:\/\//.test(getContentRoot());
 
+/**
+ * Safe to call even when `MarkdownContentSource` is off (and
+ * `MARKDOWN_CONTENT_ROOT` is therefore unset) — used only to label a dev
+ * banner, so an unconfigured root should read as "not remote", not throw.
+ */
+const isMarkdownContentSourceRemote = (): boolean => {
+    try {
+        return isRemoteRoot();
+    } catch {
+        return false;
+    }
+};
+
 // Never logged: only ever attached as a request header.
 const GITHUB_TOKEN = process.env.MARKDOWN_CONTENT_GITHUB_TOKEN;
 
@@ -465,6 +478,7 @@ const toPageTemplateDefault = (
 export {
     getContentRoot,
     isRemoteRoot,
+    isMarkdownContentSourceRemote,
     parseFrontmatter,
     readMarkdownFile,
     loadPage,

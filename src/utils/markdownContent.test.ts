@@ -134,6 +134,14 @@ describe("markdownContent — MARKDOWN_CONTENT_ROOT not set", () => {
             "MARKDOWN_CONTENT_ROOT is not set"
         );
     });
+
+    it("isMarkdownContentSourceRemote() swallows the unset-root error instead of throwing", async () => {
+        delete process.env.MARKDOWN_CONTENT_ROOT;
+        jest.resetModules();
+        const markdownContent = await import("./markdownContent");
+
+        expect(markdownContent.isMarkdownContentSourceRemote()).toBe(false);
+    });
 });
 
 describe("markdownContent — remote (GitHub Contents API) mode", () => {
@@ -172,6 +180,7 @@ describe("markdownContent — remote (GitHub Contents API) mode", () => {
 
     it("is remote", () => {
         expect(markdownContent.isRemoteRoot()).toBe(true);
+        expect(markdownContent.isMarkdownContentSourceRemote()).toBe(true);
     });
 
     it("fetches a page from the GitHub Contents API with the raw Accept header and bearer token", async () => {

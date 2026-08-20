@@ -4,7 +4,7 @@ import DOMPurify from "isomorphic-dompurify";
 import Markdown from "markdown-to-jsx";
 import { useFeatures } from "@/providers/FeatureProvider";
 import { MarkdownImage, MarkdownParagraph } from "./MarkdownMedia";
-import { Content } from "./HTMLContent.styles";
+import { Content, MarkdownSourceBanner } from "./HTMLContent.styles";
 
 export interface HTMLContentProps {
     content: string;
@@ -20,11 +20,20 @@ export interface HTMLContentProps {
  * dangerouslySetInnerHTML + DOMPurify.
  */
 const HTMLContent = ({ content }: HTMLContentProps) => {
-    const { isMarkdownContentEnabled } = useFeatures();
+    const { isMarkdownContentEnabled, isMarkdownContentSourceRemote } =
+        useFeatures();
 
     if (isMarkdownContentEnabled) {
         return (
             <Content>
+                {process.env.NODE_ENV === "development" && (
+                    <MarkdownSourceBanner>
+                        Markdown content source:{" "}
+                        {isMarkdownContentSourceRemote
+                            ? "GitHub (remote)"
+                            : "local checkout"}
+                    </MarkdownSourceBanner>
+                )}
                 <Markdown
                     options={{
                         overrides: {

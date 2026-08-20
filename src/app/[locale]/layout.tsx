@@ -14,6 +14,7 @@ import ThemeRegistry from "@/components/ThemeRegistry/ThemeRegistry";
 import ProvidersDialog from "@/modules/ProvidersDialog";
 import { getHomePageBanner } from "@/utils/cms";
 import metaData from "@/utils/metadata";
+import { isMarkdownContentSourceRemote } from "@/utils/markdownContent";
 import packageJson from "@/../package.json";
 import {
     isAliasesEnabled,
@@ -81,6 +82,7 @@ export default async function RootLayout(props: {
         isCustodianDashboardEnabled:
             (await isCustodianDashboardEnabled()) as boolean,
         isMarkdownContentEnabled: (await isMarkdownContentEnabled()) as boolean,
+        isMarkdownContentSourceRemote: isMarkdownContentSourceRemote(),
     };
 
     if (includeBanners) {

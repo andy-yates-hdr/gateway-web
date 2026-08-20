@@ -11,3 +11,14 @@ export const Content = styled("div")(({ theme }) => ({
         },
     },
 }));
+
+export const MarkdownSourceBanner = styled("div")(({ theme }) => ({
+    display: "inline-block",
+    marginBottom: theme.spacing(1.5),
+    padding: "2px 8px",
+    borderRadius: 4,
+    fontSize: 12,
+    fontFamily: "monospace",
+    color: theme.palette.warning.contrastText,
+    backgroundColor: theme.palette.warning.main,
+}));
